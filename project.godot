@@ -3,6 +3,7 @@ config_version=5
 
 [application]
 config/name="Sweet Kingdom"
+config/icon="res://assets/kingdom-icon.png"
 config/description="Original offline match-three puzzle"
 run/main_scene="res://scenes/kingdom.tscn"
 config/features=PackedStringArray("4.5", "GL Compatibility")

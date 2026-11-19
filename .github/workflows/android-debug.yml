@@ -65,7 +65,7 @@ jobs:
           LIBGL_ALWAYS_SOFTWARE: '1'
         run: |
           export SWEET_KINGDOM_CAPTURE_DIR="$PWD/build/screenshots"
-          timeout 60 xvfb-run -a -s "-screen 0 900x1200x24" godot --path . --resolution 480x854 --script tests/capture.gd
+          timeout 60 xvfb-run -a -s "-screen 0 900x1200x24" godot --path . --resolution 480x1000 --audio-driver Dummy --script tests/capture.gd
           for screen in home map gameplay; do
             test -s "build/screenshots/$screen.png"
           done

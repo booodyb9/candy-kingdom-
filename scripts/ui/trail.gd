@@ -30,16 +30,16 @@ func reflow() -> void:
 
 func _draw() -> void:
 	if scenery != null:
-		var panels := 5
-		var height := size.y / panels
-		for index in panels:
-			var region := Rect2(0, index * height, size.x, height + 1)
-			draw_texture_rect(scenery, region, false)
-			if index % 2:
-				draw_rect(region, Color(1.0, 0.70, 0.84, 0.14))
+		var scroll := get_parent() as ScrollContainer
+		var height := scroll.size.y if scroll != null else minf(size.y, 600.0)
+		var first_y := float(scroll.scroll_vertical) if scroll != null else 0.0
+		var region := Rect2(0, first_y - 10.0, size.x, height + 20.0)
+		var art_ratio := scenery.get_size()
+		var zoom := maxf(region.size.x / art_ratio.x, region.size.y / art_ratio.y)
+		var extent := art_ratio * zoom
+		draw_texture_rect(scenery, Rect2(region.get_center() - extent * 0.5, extent), false)
 	else:
-		for index in 5:
-			Art.landscape(self, Rect2(0, index * size.y / 5.0, size.x, size.y / 5.0), index)
+		Art.landscape(self, Rect2(0, 0, size.x, size.y))
 	var ribbon := PackedVector2Array()
 	var glint := PackedVector2Array()
 	var shade := PackedVector2Array()

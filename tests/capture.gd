@@ -7,6 +7,8 @@ func _capture() -> void:
 	var scene: PackedScene = load("res://scenes/kingdom.tscn")
 	var ui = scene.instantiate()
 	root.add_child(ui)
+	ui.profile.data.language = "ar"
+	ui._apply_settings()
 	ui.profile.data.motion = false
 	ui.profile.data.unlocked = 12
 	ui.profile.data.coins = 1350

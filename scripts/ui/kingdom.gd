@@ -12,10 +12,11 @@ const FONT = preload("res://assets/fonts/Tajawal-ExtraBold.ttf")
 const SCENERY = preload("res://assets/backgrounds/candy-valley.png")
 const HOME_ART = preload("res://assets/backgrounds/kingdom-home.png")
 const MAP_ART = preload("res://assets/backgrounds/sugar-river.png")
-const BERRY := Color("#aa277b")
-const PLUM := Color("#6e33a2")
+const CREST = preload("res://assets/backgrounds/logo-crest.png")
+const BERRY := Color("#bc247d")
+const PLUM := Color("#8334ab")
 const DENIM := Color("#1769b8")
-const LIME := Color("#58a722")
+const LIME := Color("#66bd0c")
 const CHERRY := Color("#cd384e")
 
 var levels: Array
@@ -65,7 +66,7 @@ func _draw() -> void:
 	var art: Texture2D = HOME_ART if screen == "home" else (MAP_ART if screen == "map" else SCENERY)
 	var factor := maxf(size.x / art.get_width(), size.y / art.get_height())
 	var extent := art.get_size() * factor
-	draw_texture_rect(art, Rect2((size - extent) * 0.5, extent), false)
+	draw_texture_rect(art, Rect2((size - extent) * Vector2(0.34 if screen == "home" else 0.5, 0.5), extent), false)
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED:
@@ -200,37 +201,28 @@ func _logo(parent: Node, compact: bool) -> void:
 	plaque.custom_minimum_size = Vector2(300, 94) if compact else Vector2(380, 212)
 	plaque.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	parent.add_child(plaque)
-	var draw_order := Panel.new()
-	plaque.add_child(draw_order)
-	draw_order.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	draw_order.offset_left = 10
-	draw_order.offset_right = -10
-	draw_order.offset_top = 22 if compact else 37
-	draw_order.offset_bottom = -12 if compact else -23
-	draw_order.add_theme_stylebox_override("panel", Glaze.gloss(BERRY, 39.0))
-	draw_order.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var kicker := _icon(plaque, "crown", 0)
-	kicker.anchor_left = 0.36
-	kicker.anchor_right = 0.64
-	kicker.anchor_bottom = 0.49 if compact else 0.39
-	kicker.offset_top = -14 if compact else -3
+	var crest := TextureRect.new()
+	crest.texture = CREST
+	crest.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	crest.stretch_mode = TextureRect.STRETCH_SCALE
+	crest.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	plaque.add_child(crest)
+	crest.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	crest.offset_top = -4 if compact else -22
+	crest.offset_bottom = 8 if compact else 4
 	var headline := _label(plaque, word("مملكة الحلوى" if compact else "مملكة\nالحلوى", "Sweet Kingdom" if compact else "Sweet\nKingdom"), 41 if compact else 66, Glaze.GOLD)
 	headline.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	headline.offset_top = 20 if compact else 36
-	headline.offset_bottom = -9 if compact else -17
+	headline.offset_top = 21 if compact else 42
+	headline.offset_bottom = -6 if compact else -23
 	headline.add_theme_constant_override("line_spacing", -14)
 	headline.add_theme_color_override("font_outline_color", Color("#621036"))
 	headline.add_theme_constant_override("outline_size", 8)
-	var ribbon := PanelContainer.new()
-	plaque.add_child(ribbon)
-	ribbon.anchor_left = 0.24
-	ribbon.anchor_right = 0.76
-	ribbon.anchor_top = 0.88 if compact else 0.82
-	ribbon.anchor_bottom = 0.96
-	ribbon.offset_bottom = 3
-	ribbon.add_theme_stylebox_override("panel", Glaze.gloss(Color("#c62d77"), 19.0, 3.0))
-	ribbon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_label(ribbon, word("Sweet Kingdom", "مملكة الحلوى"), 15 if compact else 23)
+	var caption := _label(plaque, word("Sweet Kingdom", "مملكة الحلوى"), 15 if compact else 23)
+	caption.anchor_left = 0.20
+	caption.anchor_right = 0.80
+	caption.anchor_top = 0.82 if compact else 0.84
+	caption.anchor_bottom = 0.99 if compact else 0.94
+	caption.offset_bottom = 4 if compact else 0
 	if profile.data.motion:
 		plaque.modulate.a = 0.45
 		create_tween().tween_property(plaque, "modulate:a", 1.0, 0.30)
@@ -366,6 +358,7 @@ func show_map() -> void:
 	trail.active = int(profile.data.unlocked)
 	trail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(trail)
+	scroll.get_v_scroll_bar().value_changed.connect(func(_value: float) -> void: trail.queue_redraw())
 	for id in range(1, 51):
 		var locked := id > int(profile.data.unlocked)
 		var tint := BERRY if id == trail.active else DENIM
@@ -515,8 +508,9 @@ func _show_game() -> void:
 	view.swipe_made.connect(_swap)
 	message = _label(body, "", 17, Color("#fff8d1"))
 	message.custom_minimum_size.y = 21
-	var tools := _row(body, 6)
+	var tools := _row(body, 14)
 	tools.layout_direction = Control.LAYOUT_DIRECTION_LTR
+	tools.alignment = BoxContainer.ALIGNMENT_CENTER
 	var pause := _orb(tools, "pause", word("إيقاف مؤقت", "Pause"), CHERRY, show_pause)
 	pause.tooltip_text = word("إيقاف مؤقت", "Pause")
 	booster_buttons = {}
@@ -554,7 +548,8 @@ func _tile_stat(parent: HBoxContainer, title: String, value: String, tint: Color
 func _orb(parent: Node, kind: String, caption: String, tint: Color, action: Callable) -> Button:
 	var button := _button(parent, "+5" if kind == "moves" else "", action, tint, 65)
 	button.tooltip_text = caption
-	button.custom_minimum_size.x = 51
+	button.custom_minimum_size.x = 65
+	button.size_flags_horizontal = Control.SIZE_FILL
 	button.add_theme_font_size_override("font_size", 30)
 	for state in ["normal", "hover", "pressed", "disabled"]:
 		var tone := tint
