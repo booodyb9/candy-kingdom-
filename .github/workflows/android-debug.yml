@@ -60,6 +60,15 @@ jobs:
           cat "$RUNNER_TEMP/import.log"
           if grep -Eq 'Parse Error|SCRIPT ERROR|Failed to load script' "$RUNNER_TEMP/import.log"; then exit 1; fi
           timeout 180 godot --headless --path . --script tests/run.gd
+      - name: Capture the live portrait UI
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          export SWEET_KINGDOM_CAPTURE_DIR="$PWD/build/screenshots"
+          timeout 60 xvfb-run -a -s "-screen 0 900x1200x24" godot --path . --resolution 480x854 --script tests/capture.gd
+          for screen in home map gameplay; do
+            test -s "build/screenshots/$screen.png"
+          done
       - name: Export and verify Android debug APK
         env:
           GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
@@ -73,9 +82,10 @@ jobs:
           tools="$ANDROID_HOME/build-tools/35.0.0"
           "$tools/apksigner" verify --verbose build/sweet-kingdom-debug.apk
           "$tools/aapt" dump badging build/sweet-kingdom-debug.apk > build/manifest.txt
-          grep "package: name='com.sweetkingdom.matchthree'" build/manifest.txt
+          grep "package: name='com.sweetkingdom.matchthree.preview'" build/manifest.txt
           minimum=$(sed -n "s/^sdkVersion:'\([0-9]*\)'.*/\1/p" build/manifest.txt)
-          test -n "$minimum" && test "$minimum" -le 26
+          test -n "$minimum"
+          test "$minimum" -le 26
           sha256sum build/sweet-kingdom-debug.apk > build/SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
@@ -83,4 +93,5 @@ jobs:
           path: |
             build/sweet-kingdom-debug.apk
             build/SHA256SUMS
+            build/screenshots/*.png
           if-no-files-found: error

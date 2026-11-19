@@ -5,6 +5,18 @@ const Profile = preload("res://scripts/save/profile.gd")
 const Art = preload("res://assets/candies/candy_art.gd")
 const BoardView = preload("res://scripts/ui/board_view.gd")
 const Sound = preload("res://assets/sounds/synth.gd")
+const Glaze = preload("res://scripts/ui/glaze.gd")
+const Glyph = preload("res://scripts/ui/glyph.gd")
+const Trail = preload("res://scripts/ui/trail.gd")
+const FONT = preload("res://assets/fonts/Tajawal-ExtraBold.ttf")
+const SCENERY = preload("res://assets/backgrounds/candy-valley.png")
+const HOME_ART = preload("res://assets/backgrounds/kingdom-home.png")
+const MAP_ART = preload("res://assets/backgrounds/sugar-river.png")
+const BERRY := Color("#aa277b")
+const PLUM := Color("#6e33a2")
+const DENIM := Color("#1769b8")
+const LIME := Color("#58a722")
+const CHERRY := Color("#cd384e")
 
 var levels: Array
 var profile
@@ -14,9 +26,14 @@ var game
 var view
 var moves_label: Label
 var score_label: Label
-var goal_label: Label
+var goal_values: Array[Label] = []
+var star_line: Label
+var goal_specs: Array = []
+var point_bar: ProgressBar
 var message: Label
-var top_label: Label
+var live_count: Label
+var coin_count: Label
+var booster_badges := {}
 var booster_buttons := {}
 var screen := "home"
 var level_id := 1
@@ -42,11 +59,13 @@ func _process(delta: float) -> void:
 		refresh_clock = 0.0
 		if profile.refresh():
 			profile.save()
-		if is_instance_valid(top_label):
-			top_label.text = _counters()
+		_refresh_wallet()
 
 func _draw() -> void:
-	Art.landscape(self, Rect2(Vector2.ZERO, size), (level_id - 1) / 10)
+	var art: Texture2D = HOME_ART if screen == "home" else (MAP_ART if screen == "map" else SCENERY)
+	var factor := maxf(size.x / art.get_width(), size.y / art.get_height())
+	var extent := art.get_size() * factor
+	draw_texture_rect(art, Rect2((size - extent) * 0.5, extent), false)
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED:
@@ -72,7 +91,7 @@ func _skin(fill: Color, edge: Color, radius := 15) -> StyleBoxFlat:
 	skin.set_corner_radius_all(radius)
 	skin.set_border_width_all(2)
 	skin.shadow_color = Color(0.16, 0.05, 0.23, 0.38)
-	skin.shadow_size = 3
+	skin.shadow_size = 4
 	skin.content_margin_left = 12
 	skin.content_margin_right = 12
 	skin.content_margin_top = 6
@@ -84,14 +103,17 @@ func _button(parent: Node, caption: String, call: Callable, fill := Color("#7d39
 	button.text = caption
 	button.custom_minimum_size.y = minimum
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	button.add_theme_font_size_override("font_size", 19)
+	button.add_theme_font_override("font", FONT)
+	button.add_theme_font_size_override("font_size", 21)
+	button.add_theme_color_override("font_outline_color", Color("#48223d"))
+	button.add_theme_constant_override("outline_size", 4)
 	for state in ["normal", "hover", "pressed", "disabled"]:
 		var tone := fill
 		match state:
 			"hover": tone = fill.lightened(0.12)
 			"pressed": tone = fill.darkened(0.15)
 			"disabled": tone = Color("#4a405d")
-		button.add_theme_stylebox_override(state, _skin(tone, Color("#e9a6d4") if state != "disabled" else Color("#777087")))
+		button.add_theme_stylebox_override(state, Glaze.gloss(tone))
 	button.add_theme_stylebox_override("focus", _skin(Color(0, 0, 0, 0), Color("#fff1ad")))
 	button.pressed.connect(func() -> void:
 		audio.play("button")
@@ -104,10 +126,12 @@ func _label(parent: Node, caption: String, font_size := 20, tint := Color("#fff6
 	label.text = caption
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.add_theme_font_override("font", FONT)
 	label.add_theme_font_size_override("font_size", font_size)
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label.add_theme_color_override("font_color", tint)
 	label.add_theme_color_override("font_outline_color", Color("#2f154c"))
-	label.add_theme_constant_override("outline_size", 5 if font_size > 22 else 3)
+	label.add_theme_constant_override("outline_size", 0 if tint == Glaze.INK else (6 if font_size > 30 else 3))
 	parent.add_child(label)
 	return label
 
@@ -124,15 +148,92 @@ func _spacer(parent: Node) -> void:
 
 func _card(parent: Node, tint := Color("#532c74")) -> VBoxContainer:
 	var card := PanelContainer.new()
-	card.add_theme_stylebox_override("panel", _skin(tint, Color("#df9fb7")))
+	card.add_theme_stylebox_override("panel", Glaze.gloss(tint))
 	parent.add_child(card)
 	var inner := VBoxContainer.new()
 	inner.add_theme_constant_override("separation", 5)
 	card.add_child(inner)
 	return inner
 
-func _counters() -> String:
-	return word("♥  %d / 5     •     عملات  %d", "♥  %d / 5     •     Coins  %d") % [profile.data.lives, profile.data.coins]
+func _refresh_wallet() -> void:
+	if is_instance_valid(live_count):
+		live_count.text = word("%d / ٥", "%d / 5") % profile.data.lives
+	if is_instance_valid(coin_count):
+		coin_count.text = str(profile.data.coins)
+
+func _icon(parent: Control, kind: String, dimension := 38, candy := -1) -> Control:
+	var mark := Glyph.new()
+	mark.kind = kind
+	mark.piece = candy
+	mark.custom_minimum_size = Vector2.ONE * dimension
+	parent.add_child(mark)
+	return mark
+
+func _mark(parent: Control, kind: String, extent := 0.65, y := 0.45) -> void:
+	var mark := _icon(parent, kind, 0)
+	mark.anchor_left = 0.5 - extent / 2
+	mark.anchor_right = 0.5 + extent / 2
+	mark.anchor_top = y - extent / 2
+	mark.anchor_bottom = y + extent / 2
+
+func _wallet(parent: Node, kind: String, color: Color) -> Label:
+	var shell := PanelContainer.new()
+	shell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	shell.custom_minimum_size.y = 45
+	shell.add_theme_stylebox_override("panel", Glaze.gloss(color, 23.0))
+	parent.add_child(shell)
+	var inside := _row(shell, 5)
+	inside.layout_direction = Control.LAYOUT_DIRECTION_LTR
+	_icon(inside, kind, 31)
+	var label := _label(inside, "", 23)
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	return label
+
+func _action(parent: Node, caption: String, callback: Callable, color: Color, height: int, width: int) -> Button:
+	var button := _button(parent, caption, callback, color, height)
+	button.custom_minimum_size.x = width
+	button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	return button
+
+func _logo(parent: Node, compact: bool) -> void:
+	var plaque := Control.new()
+	plaque.custom_minimum_size = Vector2(300, 94) if compact else Vector2(380, 212)
+	plaque.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	parent.add_child(plaque)
+	var draw_order := Panel.new()
+	plaque.add_child(draw_order)
+	draw_order.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	draw_order.offset_left = 10
+	draw_order.offset_right = -10
+	draw_order.offset_top = 22 if compact else 37
+	draw_order.offset_bottom = -12 if compact else -23
+	draw_order.add_theme_stylebox_override("panel", Glaze.gloss(BERRY, 39.0))
+	draw_order.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var kicker := _icon(plaque, "crown", 0)
+	kicker.anchor_left = 0.36
+	kicker.anchor_right = 0.64
+	kicker.anchor_bottom = 0.49 if compact else 0.39
+	kicker.offset_top = -14 if compact else -3
+	var headline := _label(plaque, word("مملكة الحلوى" if compact else "مملكة\nالحلوى", "Sweet Kingdom" if compact else "Sweet\nKingdom"), 41 if compact else 66, Glaze.GOLD)
+	headline.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	headline.offset_top = 20 if compact else 36
+	headline.offset_bottom = -9 if compact else -17
+	headline.add_theme_constant_override("line_spacing", -14)
+	headline.add_theme_color_override("font_outline_color", Color("#621036"))
+	headline.add_theme_constant_override("outline_size", 8)
+	var ribbon := PanelContainer.new()
+	plaque.add_child(ribbon)
+	ribbon.anchor_left = 0.24
+	ribbon.anchor_right = 0.76
+	ribbon.anchor_top = 0.88 if compact else 0.82
+	ribbon.anchor_bottom = 0.96
+	ribbon.offset_bottom = 3
+	ribbon.add_theme_stylebox_override("panel", Glaze.gloss(Color("#c62d77"), 19.0, 3.0))
+	ribbon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_label(ribbon, word("Sweet Kingdom", "مملكة الحلوى"), 15 if compact else 23)
+	if profile.data.motion:
+		plaque.modulate.a = 0.45
+		create_tween().tween_property(plaque, "modulate:a", 1.0, 0.30)
 
 func _layout(next_screen: String) -> void:
 	screen = next_screen
@@ -161,12 +262,15 @@ func _layout(next_screen: String) -> void:
 	body.add_theme_constant_override("separation", 8)
 	margins.add_child(body)
 	var toolbar := _row(body)
-	top_label = _label(toolbar, _counters(), 18)
-	top_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	toolbar.layout_direction = Control.LAYOUT_DIRECTION_LTR
+	live_count = _wallet(toolbar, "heart", Color("#932b68"))
+	coin_count = _wallet(toolbar, "coin", Color("#81286e"))
+	_refresh_wallet()
 	if next_screen != "settings":
-		var settings := _button(toolbar, "⚙", show_settings, Color("#673883"), 42)
-		settings.size_flags_horizontal = Control.SIZE_FILL
-		settings.custom_minimum_size.x = 48
+		var settings := _action(toolbar, "⚙", show_settings, DENIM, 45, 50)
+		settings.add_theme_font_size_override("font_size", 25)
+		settings.tooltip_text = word("الإعدادات", "Settings")
+
 	if profile.data.motion:
 		body.modulate.a = 0.35
 		create_tween().tween_property(body, "modulate:a", 1.0, 0.22)
@@ -177,30 +281,31 @@ func show_home() -> void:
 		return
 	_layout("home")
 	_spacer(body)
-	var logo := _card(body, Color("#653177"))
-	_label(logo, "♛", 48, Color("#ffd774"))
-	var heading := _label(logo, word("مملكة الحلوى", "Sweet Kingdom"), 48, Color("#ffe289"))
-	_label(logo, word("Sweet Kingdom", "مملكة الحلوى"), 20, Color("#ffcfe7"))
-	if profile.data.motion:
-		heading.modulate.a = 0.35
-		create_tween().tween_property(heading, "modulate:a", 1.0, 0.55)
+	_logo(body, false)
 	_spacer(body)
-	_button(body, word("العب الآن", "Play now"), func() -> void: start_level(int(profile.data.unlocked)), Color("#348043"), 69)
-	_button(body, word("خريطة المراحل", "Level map"), show_map, Color("#863c95"), 55)
-	var actions := _row(body)
+	var play := _action(body, word("العب الآن", "Play now"), func() -> void: start_level(int(profile.data.unlocked)), LIME, 85, 300)
+	play.add_theme_font_size_override("font_size", 38)
+	var map := _action(body, word("المراحل", "Level map"), show_map, BERRY, 64, 242)
+	map.add_theme_font_size_override("font_size", 28)
+	_spacer(body)
+	var actions := _row(body, 6)
+	_button(actions, word("الإنجازات", "Awards"), show_achievements, PLUM, 56)
+	_button(actions, word("المكافآت", "Rewards"), show_rewards, PLUM, 56)
 	_button(actions, word("الصوت", "Sound"), func() -> void:
 		_toggle("sound")
-		show_home())
+		show_home(), PLUM if float(profile.data.sound) > 0 else Color("#915283"), 56)
 	_button(actions, word("الموسيقى", "Music"), func() -> void:
 		_toggle("music")
-		show_home())
-	_button(actions, word("English", "العربية"), func() -> void:
+		show_home(), PLUM if float(profile.data.music) > 0 else Color("#915283"), 56)
+	var stats := _row(body)
+	_action(stats, word("العربية · EN", "English · عربي"), func() -> void:
 		_language()
-		show_home())
-	var stars := 0
-	for result in profile.data.results.values():
-		stars += int(result.stars)
-	_label(_card(body), word("تقدمك  ★  %d / 150", "Progress  ★  %d / 150") % stars, 21)
+		show_home(), BERRY, 48, 116)
+	var progress_card := PanelContainer.new()
+	progress_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	progress_card.add_theme_stylebox_override("panel", Glaze.gloss(Color("#9f3a70"), 21.0))
+	stats.add_child(progress_card)
+	_label(progress_card, word("تقدمك  ★  %d / 150", "Progress  ★  %d / 150") % _star_count(), 22)
 	if profile.notice != "":
 		var notice := word("تعذرت كتابة الحفظ.", "Saving failed.")
 		if profile.notice == "recovered":
@@ -209,48 +314,84 @@ func show_home() -> void:
 			notice = word("ملفات الحفظ تالفة. ابدأ ملفًا جديدًا؟", "Save files are damaged. Start a new profile?")
 		_button(body, notice, func() -> void:
 			profile.acknowledge_damage()
-			show_home(), Color("#883854"))
+			show_home(), CHERRY)
 	elif int(profile.data.lives) == 0:
 		_label(_card(body), word("حياة جديدة خلال ٢٠ دقيقة كحد أقصى", "Next life returns within 20 minutes"), 16)
+
+func _star_count() -> int:
+	var stars := 0
+	for result in profile.data.results.values():
+		stars += int(result.stars)
+	return stars
+
+func show_achievements() -> void:
+	_layout("achievements")
+	_spacer(body)
+	var card := _card(body, BERRY)
+	_label(card, word("إنجازاتي", "Achievements"), 35, Glaze.GOLD)
+	for milestone in [1, 10, 25, 50]:
+		var status := "✓" if profile.data.results.size() >= milestone else "◇"
+		_label(card, word("%s  إكمال %d مرحلة", "%s  Complete %d levels") % [status, milestone], 22)
+	_button(body, word("الرئيسية", "Home"), show_home, PLUM)
+	_spacer(body)
+
+func show_rewards() -> void:
+	_layout("rewards")
+	_spacer(body)
+	var card := _card(body, BERRY)
+	_label(card, word("مكافآتي", "Rewards"), 35, Glaze.GOLD)
+	_label(card, word("★  %d نجمة", "★  %d stars") % _star_count(), 24)
+	_label(card, word("%d عملة", "%d coins") % profile.data.coins, 24)
+	_label(card, word("أكمل المراحل لكسب العملات والنجوم", "Complete levels to earn stars and coins"), 18)
+	_button(body, word("الرئيسية", "Home"), show_home, PLUM)
+	_spacer(body)
 
 func show_map() -> void:
 	if busy:
 		return
 	_layout("map")
-	_label(body, word("خريطة المملكة", "Kingdom map"), 34, Color("#ffe592"))
+	_logo(body, true)
+	var holder := PanelContainer.new()
+	holder.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	holder.add_theme_stylebox_override("panel", Glaze.crumb(Color("#fac484"), Color("#fff0a9")))
+	body.add_child(holder)
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	body.add_child(scroll)
-	var path := VBoxContainer.new()
-	path.add_theme_constant_override("separation", 10)
-	path.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(path)
-	var active: Button
-	for index in range(49, -1, -1):
-		var id := index + 1
-		if id % 10 == 0:
-			var names_ar := ["وادي السكر", "جسور الكراميل", "غابة التفاح", "بحيرة التوت", "القصر الذهبي"]
-			var names_en := ["Sugar Valley", "Caramel Bridges", "Apple Grove", "Berry Lake", "Golden Palace"]
-			_label(_card(path), word(names_ar[index / 10], names_en[index / 10]), 20)
-		var node_row := _row(path)
-		var indent := Control.new()
-		indent.custom_minimum_size.x = 36 + (1.0 + sin(id * 0.76)) * 100.0
-		node_row.add_child(indent)
-		var stars := int(profile.data.results.get(str(id), {}).get("stars", 0))
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
+	scroll.follow_focus = true
+	holder.add_child(scroll)
+	holder.clip_contents = true
+	var trail := Trail.new()
+	trail.scenery = MAP_ART
+	trail.active = int(profile.data.unlocked)
+	trail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(trail)
+	for id in range(1, 51):
 		var locked := id > int(profile.data.unlocked)
-		var badge := "  " + "★".repeat(stars) if stars > 0 else ("  ×" if locked else "")
-		var node := _button(node_row, str(id) + badge, func() -> void: start_level(id),
-			Color("#9b4c37") if id == int(profile.data.unlocked) else Color("#315da2"), 50)
-		node.size_flags_horizontal = Control.SIZE_FILL
-		node.custom_minimum_size.x = 108
+		var tint := BERRY if id == trail.active else DENIM
+		var node := _button(trail, str(id), func() -> void: start_level(id), tint, 55)
+		node.size = Vector2(59, 55)
+		node.add_theme_font_size_override("font_size", 25)
+		node.tooltip_text = word("المرحلة %d", "Level %d") % id
 		node.disabled = locked
-		if id == int(profile.data.unlocked):
-			active = node
-	_button(body, word("الرئيسية", "Home"), show_home)
+		var stars := int(profile.data.results.get(str(id), {}).get("stars", 0))
+		if stars > 0:
+			var award := _label(node, "★".repeat(stars), 17, Glaze.GOLD)
+			award.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			award.offset_top = 47
+			award.offset_bottom = 18
+		elif locked:
+			_mark(node, "lock", 0.31, 0.83)
+		trail.stops.append(node)
+	trail.reflow()
+	var menu := _row(body)
+	_button(menu, word("الرئيسية", "Home"), show_home, PLUM, 48)
+	_button(menu, word("العب الآن", "Play"), func() -> void: start_level(int(profile.data.unlocked)), LIME, 48)
+	_button(menu, word("مكافآتي", "Rewards"), show_rewards, PLUM, 48)
 	await get_tree().process_frame
-	if is_instance_valid(scroll) and is_instance_valid(active):
-		scroll.ensure_control_visible(active)
+	if is_instance_valid(scroll):
+		var local := trail.coordinate(trail.active)
+		scroll.scroll_vertical = maxi(0, int(local.y - scroll.size.y * 0.79))
 
 func _language() -> void:
 	profile.data.language = "en" if profile.data.language == "ar" else "ar"
@@ -307,6 +448,8 @@ func show_settings() -> void:
 		profile.save()
 		if previous == "game":
 			_show_game()
+		elif previous == "pause":
+			show_pause()
 		elif previous == "map":
 			show_map()
 		else:
@@ -327,38 +470,145 @@ func start_level(id: int, seed_value := -1) -> void:
 
 func _show_game() -> void:
 	_layout("game")
-	var overview := _card(body)
-	_label(overview, word("المرحلة %d", "Level %d") % level_id, 26, Color("#ffde87"))
-	goal_label = _label(overview, "", 17)
-	var totals := _row(overview)
-	moves_label = _label(totals, "", 19)
-	moves_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	score_label = _label(totals, "", 19)
+	_logo(body, true)
+	var overview := PanelContainer.new()
+	overview.add_theme_stylebox_override("panel", Glaze.gloss(Color("#ffb68c"), 23.0, 7.0))
+	body.add_child(overview)
+	var record := _row(overview, 7)
+	record.layout_direction = Control.LAYOUT_DIRECTION_LTR
+	_tile_stat(record, word("المرحلة", "Level"), str(level_id), Glaze.GOLD)
+	var goals := VBoxContainer.new()
+	goals.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	goals.add_theme_constant_override("separation", -3)
+	record.add_child(goals)
+	_label(goals, word("الأهداف", "Goals"), 20, Glaze.INK)
+	var trophies := _row(goals, 4)
+	trophies.alignment = BoxContainer.ALIGNMENT_CENTER
+	_make_goals(trophies)
+	moves_label = _tile_stat(record, word("الحركات", "Moves"), "", Color.WHITE)
+
+	var score := PanelContainer.new()
+	score.custom_minimum_size.y = 33
+	score.add_theme_stylebox_override("panel", Glaze.gloss(Color("#71205c"), 19.0, 5.0))
+	body.add_child(score)
+	var score_row := _row(score, 8)
+	score_label = _label(score_row, "", 20)
 	score_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	message = _label(body, "", 16, Color("#ffe7a3"))
+	point_bar = ProgressBar.new()
+	point_bar.show_percentage = false
+	point_bar.custom_minimum_size = Vector2(76, 11)
+	point_bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	point_bar.add_theme_stylebox_override("background", Glaze.crumb(Color("#531749"), Color("#a75589"), 7))
+	point_bar.add_theme_stylebox_override("fill", Glaze.crumb(Color("#ffc544"), Color("#fff29d"), 7))
+	score_row.add_child(point_bar)
+	star_line = _label(score_row, "", 22, Glaze.GOLD)
+	star_line.custom_minimum_size.x = 77
+
 	view = BoardView.new()
 	view.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	view.custom_minimum_size.y = 225
+	view.custom_minimum_size.y = 240
 	view.engine = game
 	view.display = game.snapshot()
 	view.animate = profile.data.motion and not profile.data.economy
 	body.add_child(view)
 	view.cell_tapped.connect(_tap)
 	view.swipe_made.connect(_swap)
-	var tools := _row(body, 5)
+	message = _label(body, "", 17, Color("#fff8d1"))
+	message.custom_minimum_size.y = 21
+	var tools := _row(body, 6)
+	tools.layout_direction = Control.LAYOUT_DIRECTION_LTR
+	var pause := _orb(tools, "pause", word("إيقاف مؤقت", "Pause"), CHERRY, show_pause)
+	pause.tooltip_text = word("إيقاف مؤقت", "Pause")
 	booster_buttons = {}
-	for kind in ["hammer", "moves", "shuffle", "color"]:
-		var booster := _button(tools, "", func() -> void: _choose_boost(kind), Color("#753c91"), 54)
-		booster.add_theme_font_size_override("font_size", 14)
+	booster_badges = {}
+	var names := {"hammer": word("مطرقة", "Hammer"), "moves": word("خمس حركات", "Extra moves"), "shuffle": word("خلط", "Shuffle"), "color": word("تفجير لون", "Color blast")}
+	for kind in ["hammer", "shuffle", "moves", "color"]:
+		var booster := _orb(tools, str(kind), names[kind], DENIM if kind == "shuffle" else PLUM, func() -> void: _choose_boost(kind))
+		var badge := _label(booster, "", 16)
+		badge.anchor_left = 0.58
+		badge.anchor_right = 0.99
+		badge.anchor_top = 0.66
+		badge.anchor_bottom = 1.01
+		badge.add_theme_color_override("font_outline_color", Color("#9b274c"))
+		badge.add_theme_constant_override("outline_size", 8)
 		booster_buttons[kind] = booster
-	var nav := _row(body)
-	_button(nav, word("الخريطة", "Map"), show_map, Color("#56417c"), 39)
-	_button(nav, word("إعادة", "Restart"), func() -> void: start_level(level_id), Color("#56417c"), 39)
+		booster_badges[kind] = badge
 	_update(game.snapshot())
 	if resolved:
 		_result(false)
 	elif level_id <= 5:
 		message.text = word("حرّك قطعة أو اختار قطعتين متجاورتين", "Swipe a candy or tap two neighbors")
+
+func _tile_stat(parent: HBoxContainer, title: String, value: String, tint: Color) -> Label:
+	var tile := PanelContainer.new()
+	tile.custom_minimum_size.x = 85
+	tile.add_theme_stylebox_override("panel", Glaze.gloss(Color("#9b327b"), 23.0, 4.0))
+	parent.add_child(tile)
+	var stack := VBoxContainer.new()
+	stack.alignment = BoxContainer.ALIGNMENT_CENTER
+	stack.add_theme_constant_override("separation", -7)
+	tile.add_child(stack)
+	_label(stack, title, 16)
+	return _label(stack, value, 37, tint)
+
+func _orb(parent: Node, kind: String, caption: String, tint: Color, action: Callable) -> Button:
+	var button := _button(parent, "+5" if kind == "moves" else "", action, tint, 65)
+	button.tooltip_text = caption
+	button.custom_minimum_size.x = 51
+	button.add_theme_font_size_override("font_size", 30)
+	for state in ["normal", "hover", "pressed", "disabled"]:
+		var tone := tint
+		if state == "hover":
+			tone = tint.lightened(0.16)
+		elif state == "pressed":
+			tone = tint.darkened(0.14)
+		elif state == "disabled":
+			tone = tint.darkened(0.43)
+		button.add_theme_stylebox_override(state, Glaze.gloss(tone, 36.0, 5.0))
+	_mark(button, kind, 0.66, 0.45)
+	return button
+
+func _make_goals(parent: HBoxContainer) -> void:
+	var goal: Dictionary = game.level.goal
+	goal_specs = []
+	goal_values.clear()
+	match str(goal.type):
+		"palette":
+			for target in goal.targets:
+				goal_specs.append({"kind": "collect", "color": int(target.color), "total": int(target.count)})
+		"collect", "mixed":
+			goal_specs.append({"kind": "collect", "color": int(goal.color), "total": int(goal.count)})
+			if goal.type == "mixed":
+				goal_specs.append({"kind": "jelly"})
+				goal_specs.append({"kind": "block"})
+		"jelly": goal_specs.append({"kind": "jelly"})
+		"blocks": goal_specs.append({"kind": "block"})
+		_: goal_specs.append({"kind": "score", "total": int(goal.count)})
+	for spec in goal_specs:
+		var stack := VBoxContainer.new()
+		stack.add_theme_constant_override("separation", -3)
+		stack.custom_minimum_size.x = 50
+		parent.add_child(stack)
+		var piece: int = int(spec.get("color", -1))
+		var icon_kind: String = spec.kind
+		if icon_kind == "score":
+			piece = 3
+		var icon := _icon(stack, icon_kind, 34, piece)
+		icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		goal_values.append(_label(stack, "", 17, Glaze.INK))
+
+func show_pause() -> void:
+	if busy:
+		return
+	_layout("pause")
+	_spacer(body)
+	var card := _card(body, BERRY)
+	_label(card, word("استراحة في المملكة", "Kingdom break"), 32, Glaze.GOLD)
+	_button(card, word("كمّل اللعب", "Resume"), _show_game, LIME)
+	_button(card, word("إعادة المرحلة", "Restart level"), func() -> void: start_level(level_id), PLUM)
+	_button(card, word("خريطة المراحل", "Level map"), show_map, DENIM)
+	_button(card, word("الرئيسية", "Home"), show_home, PLUM)
+	_spacer(body)
 
 func _sum(layer: PackedInt32Array) -> int:
 	var count := 0
@@ -367,28 +617,31 @@ func _sum(layer: PackedInt32Array) -> int:
 	return count
 
 func _update(state: Dictionary) -> void:
-	var goal: Dictionary = game.level.goal
-	var target := ""
-	match str(goal.type):
-		"collect", "mixed":
-			var ar := ["فراولة", "بلّور", "تفاح", "ليمون", "عنب", "برتقال"]
-			var en := ["Strawberry", "Crystal", "Apple", "Lemon", "Grape", "Orange"]
-			var color_index := int(goal.color)
-			target = "%s %d/%d" % [word(ar[color_index], en[color_index]), state.collected[color_index], goal.count]
-			if str(goal.type) == "mixed":
-				target += word("  •  هلام %d  •  قطع %d", "  •  Jelly %d  •  Blocks %d") % [_sum(state.jelly), _sum(state.blocks)]
-		"jelly": target = word("الهلام المتبقي %d", "Jelly layers left %d") % _sum(state.jelly)
-		"blocks": target = word("القطع المتبقية %d", "Block hits left %d") % _sum(state.blocks)
-		_: target = word("الهدف %d نقطة", "Target %d points") % goal.count
-	goal_label.text = target
-	moves_label.text = word("الحركات %d", "Moves %d") % state.moves
-	score_label.text = word("النقاط %d", "Score %d") % state.score
-	var captions := {"hammer": word("مطرقة", "Hammer"), "moves": "+5", "shuffle": word("خلط", "Shuffle"), "color": word("لون", "Color")}
+	for index in goal_specs.size():
+		var spec: Dictionary = goal_specs[index]
+		var label := goal_values[index]
+		match str(spec.kind):
+			"collect":
+				var collected := mini(int(state.collected[spec.color]), int(spec.total))
+				label.text = "%d/%d" % [collected, spec.total]
+			"jelly": label.text = str(_sum(state.jelly))
+			"block": label.text = str(_sum(state.blocks))
+			_: label.text = str(spec.total)
+	moves_label.text = str(state.moves)
+	score_label.text = word("النتيجة  %d", "Score  %d") % state.score
+	var stars: Array = game.level.stars
+	var earned := 0
+	for threshold in stars:
+		if state.score >= int(threshold):
+			earned += 1
+	point_bar.max_value = int(stars[2])
+	point_bar.value = state.score
+	star_line.text = "★".repeat(earned) + "☆".repeat(3 - earned)
 	for kind in booster_buttons:
 		var count := int(profile.data.stock.get(kind, 0))
-		var label: String = captions[kind]
-		booster_buttons[kind].text = label + "\n" + (str(count) if count > 0 else "● " + str(Profile.COST[kind]))
+		booster_badges[kind].text = str(count) if count > 0 else str(Profile.COST[kind])
 		booster_buttons[kind].disabled = busy or resolved or not profile.can_spend(kind)
+	_refresh_wallet()
 
 func _tap(index: int) -> void:
 	if busy or resolved:

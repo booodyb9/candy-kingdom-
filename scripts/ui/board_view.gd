@@ -1,6 +1,7 @@
 extends Control
 
 const Art = preload("res://assets/candies/candy_art.gd")
+const Glaze = preload("res://scripts/ui/glaze.gd")
 var engine
 var display: Dictionary = {}
 var frame: Dictionary = {}
@@ -28,7 +29,7 @@ func _process(delta: float) -> void:
 		queue_redraw()
 
 func square() -> float:
-	return floorf(minf((size.x - 15) / engine.width, (size.y - 15) / engine.height))
+	return floorf(minf((size.x - 23) / engine.width, (size.y - 23) / engine.height))
 
 func field() -> Rect2:
 	var extent := Vector2(engine.width, engine.height) * square()
@@ -90,19 +91,15 @@ func _draw() -> void:
 		return
 	var board := field()
 	var step := square()
-	var border := StyleBoxFlat.new()
-	border.bg_color = Color("#261743")
-	border.border_color = Color("#ffc67e")
-	border.set_border_width_all(3)
-	border.set_corner_radius_all(17)
-	border.shadow_color = Color(0.14, 0.07, 0.26, 0.8)
-	border.shadow_size = 5
-	draw_style_box(border, board.grow(6))
+	var rim := Glaze.gloss(Color("#fa8d80"), 22.0, 4.0)
+	draw_style_box(rim, board.grow(10))
+	var border := Glaze.crumb(Color("#192448"), Color("#fff0d7"), 10)
+	draw_style_box(border, board.grow(4))
 	for index in display.grid.size():
 		var point := center(index)
 		var tile := Rect2(point - Vector2.ONE * (step / 2.0 - 1), Vector2.ONE * (step - 2))
 		var alternate: bool = (index % engine.width + index / engine.width) % 2 == 0
-		draw_rect(tile, Color("#3d2965") if alternate else Color("#483173"))
+		draw_rect(tile, Color("#303862") if alternate else Color("#252d54"))
 		if display.jelly[index] > 0:
 			draw_rect(tile.grow(-2), Color(0.35, 0.88, 1.0, 0.28))
 			draw_rect(tile.grow(-3), Color("#7ae9ff"), false, 2)
@@ -126,7 +123,7 @@ func _draw() -> void:
 			point = center(info.origins[index]).lerp(point, progress)
 		if info.get("offsets", {}).has(index):
 			point.y += float(info.offsets[index]) * step * (1.0 - progress)
-		var extent := step * 0.96
+		var extent := step * 1.09
 		if index == selected and animate:
 			extent *= 1.0 + sin(clock * 7.5) * 0.075
 		Art.paint_piece(self, piece, point, extent)

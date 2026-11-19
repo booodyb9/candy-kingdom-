@@ -337,6 +337,11 @@ func objective_met(state := {}) -> bool:
 	var goal: Dictionary = level.get("goal", {"type": "score", "count": 300})
 	match str(goal.type):
 		"collect": return current.collected[int(goal.color)] >= int(goal.count)
+		"palette":
+			for target in goal.targets:
+				if current.collected[int(target.color)] < int(target.count):
+					return false
+			return true
 		"jelly": return not _has_obstacle(current.jelly)
 		"blocks": return not _has_obstacle(current.blocks)
 		"mixed":

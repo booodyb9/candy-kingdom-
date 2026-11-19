@@ -113,6 +113,11 @@ func _run() -> void:
 	move = failed.legal_moves(true)[0]
 	failed.swap(move.x, move.y)
 	check(failed.phase == Board.Phase.FAILED, "last move fails when goal remains")
+	var palette = Board.new({"goal": {"type": "palette", "targets": [{"color": 0, "count": 4}, {"color": 2, "count": 3}]}}, 8)
+	palette.collected[0] = 4
+	check(not palette.objective_met(), "palette requires each color")
+	palette.collected[2] = 3
+	check(palette.objective_met(), "palette goal completes with all colors")
 	var tiles = Board.new({"tiles": [[1, 1, "block", 2], [0, 0, "jelly", 2], [3, 3, "lock", 2]],
 		"goal": {"type": "blocks"}}, 11)
 	tiles.boost("hammer", 9)
@@ -188,6 +193,9 @@ func _simulate(level: Dictionary, seed_value: int) -> bool:
 					var kind := Board.color(board.grid[cell])
 					if kind == int(level.goal.get("color", -1)):
 						ranking += 1.6
+					for target in level.goal.get("targets", []):
+						if int(target.color) == kind and board.collected[kind] < int(target.count):
+							ranking += 1.9
 					for neighbor in [cell - board.width, cell + board.width, cell - 1, cell + 1]:
 						if board.adjacent(cell, neighbor):
 							ranking += 2.5 * board.blocks[neighbor]

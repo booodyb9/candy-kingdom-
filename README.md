@@ -1,6 +1,6 @@
 # Sweet Kingdom · مملكة الحلوى
 
-Original offline portrait Match-3 for Android. Arabic is the default language. Switch to English from the home screen or settings.
+Original offline portrait Match-3 for Android. The refreshed preview uses a separate Android app ID so it can install alongside the first debug build, which keeps its existing save. Arabic is the default language. Switch to English from the home screen or settings.
 
 ## Play
 
@@ -19,7 +19,7 @@ The APK is debug signed. Each GitHub Actions runner generates its own test keyst
 
 ## Develop
 
-Open **project.godot** with Godot 4.5.1 and run the main scene. The Compatibility renderer uses baked, original 2.5D candy lighting. Audio is synthesized by the project. No network or external assets are required at runtime.
+Open **project.godot** with Godot 4.5.1 and run the main scene. The Compatibility renderer uses baked, original 2.5D candy lighting. Audio is synthesized by the project. The candy kingdom scenic plates are original generated art. Tajawal ExtraBold is distributed under its included SIL Open Font License. The build records actual Godot screenshots of Home, the map, and gameplay in its artifact. No network or external assets are required at runtime.
 
 Run in a clean user-data environment:
 

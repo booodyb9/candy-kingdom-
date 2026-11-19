@@ -1,8 +1,10 @@
 extends Node2D
 ## Original candy silhouettes and baked lighting for the compatibility renderer.
 
-const COLORS := [Color("#ff4566"), Color("#48cfff"), Color("#83e542"), Color("#ffe35c"), Color("#ce71ff"), Color("#ffa140")]
-const SIDE := 96
+const COLORS := [Color("#ff1641"), Color("#079ef8"), Color("#6cce12"), Color("#ffc520"), Color("#b028f7"), Color("#ff860d")]
+const SIDE := 112
+const LIGHT := Vector3(-0.48, -0.66, 0.57)
+const HALF_LIGHT := Vector3(-0.27, -0.37, 0.89)
 static var candies: Array[Texture2D] = []
 
 static func prepare() -> void:
@@ -10,53 +12,85 @@ static func prepare() -> void:
 		return
 	for kind in COLORS.size():
 		var image := Image.create_empty(SIDE, SIDE, false, Image.FORMAT_RGBA8)
+		var heights := PackedFloat32Array()
+		heights.resize(SIDE * SIDE)
 		for y in SIDE:
 			for x in SIDE:
-				var p := (Vector2(x, y) + Vector2(0.5, 0.5) - Vector2.ONE * SIDE / 2.0) / (SIDE / 2.0)
-				var d := _shape(p, kind)
-				var alpha := clampf(0.65 - d * SIDE / 2.0, 0.0, 1.0)
-				if alpha <= 0:
+				var p := _point(x, y)
+				heights[y * SIDE + x] = _height(p, kind)
+		for y in range(1, SIDE - 1):
+			for x in range(1, SIDE - 1):
+				var p := _point(x, y)
+				var distance := _shape(p, kind)
+				var opacity := clampf(0.50 - distance * SIDE * 0.5, 0, 1)
+				if opacity <= 0:
 					continue
-				var normal := Vector2(_shape(p + Vector2(0.007, 0), kind) - d, _shape(p + Vector2(0, 0.007), kind) - d).normalized()
-				var bevel := clampf(1.0 + d * 5.2, 0.0, 1.0)
-				var ray := Vector2(-0.66, -0.75)
-				var lambert := normal.dot(ray)
-				var base: Color = COLORS[kind]
-				var color_value := base.darkened(clampf(p.y * 0.32 + 0.1, 0.0, 0.54))
-				color_value = color_value.lerp(Color.WHITE, clampf(bevel * lambert * 0.32, 0.0, 0.4))
-				color_value = color_value.darkened(bevel * maxf(0, -lambert) * 0.37)
-				var spot := Vector2((p.x + 0.28) / 0.31, (p.y + 0.44 - p.x * 0.16) / 0.17)
-				var gloss := exp(-spot.length_squared() * 1.6) * clampf((-d - 0.015) * 19.0, 0, 1)
-				color_value = color_value.lerp(Color("#fff8ed"), gloss * 0.83)
-				var rim := exp(-pow((d + 0.075) * 29.0, 2.0)) * maxf(lambert, 0.0)
-				color_value = color_value.lerp(Color.WHITE, rim * 0.3)
-				if kind == 0 and p.y < -0.35 and absf(p.x) < 0.24 and d < -0.02:
-					color_value = color_value.lerp(Color("#bffc7d"), 0.32)
-				image.set_pixel(x, y, Color(color_value, alpha))
+				var i := y * SIDE + x
+				var normal := Vector3(33.0 * (heights[i - 1] - heights[i + 1]),
+					33.0 * (heights[i - SIDE] - heights[i + SIDE]), 1.0).normalized()
+				var light := maxf(0.0, normal.dot(LIGHT))
+				var glint := pow(maxf(0.0, normal.dot(HALF_LIGHT)), 35.0)
+				var halo := pow(maxf(0.0, normal.dot(HALF_LIGHT)), 6.0)
+				var body: Color = COLORS[kind]
+				var color := body.darkened(clampf(0.50 - light * 0.65 + p.y * 0.13, 0.0, 0.68))
+				var edge := exp(-pow((distance + 0.075) * 26.0, 2.0))
+				color = color.lerp(body.lightened(0.55), edge * (0.15 + light * 0.38))
+				color = color.lerp(Color("#fff5dc"), minf(0.92, glint * 0.88 + halo * 0.16))
+				if kind == 1:
+					var face := (p.abs().x + p.abs().y) * 0.72
+					color = color.lerp(Color("#74eafa"), clampf(0.27 - p.y * 0.27, 0, 0.48) if face < 0.45 else edge * 0.53)
+				var reflection := Vector2((p.x + 0.30) / 0.22, (p.y + 0.44 + p.x * 0.18) / 0.11)
+				var reflection_value := exp(-reflection.length_squared() * 1.25) * clampf(-distance * 15.0, 0, 1)
+				color = color.lerp(Color("#fffef3"), reflection_value * 0.73)
+				image.set_pixel(x, y, Color(color, opacity))
 		candies.append(ImageTexture.create_from_image(image))
 
+static func _point(x: int, y: int) -> Vector2:
+	return (Vector2(x + 0.5, y + 0.5) - Vector2.ONE * (SIDE * 0.5)) / (SIDE * 0.5)
+
 static func _ellipse(p: Vector2, center: Vector2, radius: Vector2) -> float:
-	return ((p - center) / radius).length() * minf(radius.x, radius.y) - minf(radius.x, radius.y)
+	return (((p - center) / radius).length() - 1.0) * minf(radius.x, radius.y)
 
 static func _shape(p: Vector2, kind: int) -> float:
 	match kind:
 		0:
-			# Two shoulders taper into a strawberry tip.
-			var q := Vector2(p.x * (1.0 + maxf(p.y, 0) * 0.83), p.y)
-			return minf(_ellipse(q, Vector2(-0.22, -0.1), Vector2(0.58, 0.72)), _ellipse(q, Vector2(0.22, -0.1), Vector2(0.58, 0.72)))
+			var upper := absf(p.x)
+			if p.y + upper < 0.02:
+				return (Vector2(upper - 0.28, p.y + 0.25).length() - 0.43) * 0.9
+			var diagonal := (upper + p.y) * 0.70 - 0.52
+			var rounding := _ellipse(p, Vector2(0, 0.07), Vector2(0.75, 0.69))
+			return maxf(diagonal, rounding)
 		1:
-			return maxf((absf(p.x) + absf(p.y)) * 0.707 - 0.55, maxf(absf(p.x), absf(p.y)) - 0.70)
+			return maxf((absf(p.x) + absf(p.y)) * 0.707 - 0.60, maxf(absf(p.x), absf(p.y)) - 0.76)
 		2:
-			return minf(_ellipse(p, Vector2(-0.24, 0.04), Vector2(0.55, 0.68)), _ellipse(p, Vector2(0.24, 0.04), Vector2(0.55, 0.68)))
+			return _ellipse(p, Vector2(0, 0.05), Vector2(0.72, 0.70))
 		3:
-			return _ellipse(p.rotated(-0.39), Vector2.ZERO, Vector2(0.83, 0.54))
+			var radius := p.length()
+			var wedge := absf(fposmod(p.angle() + PI / 2 + PI / 5, TAU / 5) - PI / 5)
+			var edge := 0.48 + 0.29 * pow(1.0 - wedge / (PI / 5), 1.5)
+			return radius - edge
 		4:
-			var d := _ellipse(p, Vector2(0, 0.46), Vector2(0.29, 0.32))
-			for center in [Vector2(-0.28, 0.15), Vector2(0.28, 0.15), Vector2(-0.42, -0.28), Vector2.ZERO + Vector2(0, -0.36), Vector2(0.42, -0.28)]:
-				d = minf(d, _ellipse(p, center, Vector2(0.34, 0.36)))
+			var d := p.length() - 0.32
+			for center in [Vector2(-0.33, -0.20), Vector2(0.01, -0.42), Vector2(0.34, -0.20),
+				Vector2(-0.36, 0.19), Vector2(0.33, 0.18), Vector2(0.00, 0.46)]:
+				d = minf(d, (p - center).length() - 0.30)
 			return d
 		_:
 			return p.length() - 0.75
+
+static func _height(p: Vector2, kind: int) -> float:
+	var depth := -_shape(p, kind)
+	if depth <= 0:
+		return 0.0
+	if kind == 1:
+		return minf(depth * 1.8, 0.30) + depth * 0.09
+	var volume := sqrt(clampf(depth * 1.54, 0, 1)) * 0.56
+	if kind == 2:
+		volume += 0.055 * cos(p.x * 12.0) * clampf(depth * 5.0, 0, 1)
+	elif kind == 5:
+		var coil := cos(p.length() * 17.0 - p.angle() * 0.94)
+		volume += coil * 0.043 * clampf(depth * 5.0, 0, 1)
+	return volume
 
 static func paint_piece(canvas: CanvasItem, piece: int, center: Vector2, extent: float, alpha := 1.0) -> void:
 	if piece < 0:
