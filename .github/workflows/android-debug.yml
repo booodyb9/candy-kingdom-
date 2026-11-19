@@ -1,0 +1,97 @@
+name: Android debug
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      GODOT_VERSION: 4.5.1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK
+        run: |
+          manager=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)
+          test -x "$manager"
+          "$manager" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+      - name: Install pinned Godot version and export templates
+        run: |
+          set -euo pipefail
+          base="https://github.com/godotengine/godot-builds/releases/download/$GODOT_VERSION-stable"
+          curl -fL --retry 3 "$base/Godot_v$GODOT_VERSION-stable_linux.x86_64.zip" -o "$RUNNER_TEMP/godot.zip"
+          curl -fL --retry 3 "$base/Godot_v$GODOT_VERSION-stable_export_templates.tpz" -o "$RUNNER_TEMP/templates.zip"
+          mkdir -p "$RUNNER_TEMP/bin" "$HOME/.local/share/godot/export_templates" "$HOME/.config/godot" "$HOME/.android"
+          unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/bin"
+          mv "$RUNNER_TEMP/bin/Godot_v$GODOT_VERSION-stable_linux.x86_64" "$RUNNER_TEMP/bin/godot"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          template_dir="$HOME/.local/share/godot/export_templates/$GODOT_VERSION.stable"
+          mkdir -p "$template_dir"
+          unzip -jq "$RUNNER_TEMP/templates.zip" "templates/android_debug.apk" "templates/version.txt" -d "$template_dir"
+          keytool -genkeypair -keystore "$RUNNER_TEMP/sweet-kingdom-debug.keystore" \
+            -storepass android -alias androiddebugkey -keypass android -keyalg RSA \
+            -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          cat > "$HOME/.config/godot/editor_settings-4.5.tres" <<EOF
+          [gd_resource type="EditorSettings" format=3]
+          
+          [resource]
+          export/android/android_sdk_path = "$ANDROID_HOME"
+          export/android/java_sdk_path = "$JAVA_HOME"
+          export/android/debug_keystore = "$RUNNER_TEMP/sweet-kingdom-debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          EOF
+      - name: Import and test
+        run: |
+          set -euo pipefail
+          godot --version
+          godot --headless --path . --editor --import > "$RUNNER_TEMP/import.log" 2>&1
+          cat "$RUNNER_TEMP/import.log"
+          if grep -Eq 'Parse Error|SCRIPT ERROR|Failed to load script' "$RUNNER_TEMP/import.log"; then exit 1; fi
+          timeout 180 godot --headless --path . --script tests/run.gd
+      - name: Capture the live portrait UI
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          export SWEET_KINGDOM_CAPTURE_DIR="$PWD/build/screenshots"
+          timeout 60 xvfb-run -a -s "-screen 0 900x1200x24" godot --path . --resolution 480x1000 --audio-driver Dummy --script tests/capture.gd
+          for screen in home map gameplay; do
+            test -s "build/screenshots/$screen.png"
+          done
+      - name: Export and verify Android debug APK
+        env:
+          GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
+          GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
+        run: |
+          set -euo pipefail
+          export GODOT_ANDROID_KEYSTORE_DEBUG_PATH="$RUNNER_TEMP/sweet-kingdom-debug.keystore"
+          mkdir -p build
+          godot --headless --path . --export-debug Android build/sweet-kingdom-debug.apk
+          test -s build/sweet-kingdom-debug.apk
+          tools="$ANDROID_HOME/build-tools/35.0.0"
+          "$tools/apksigner" verify --verbose build/sweet-kingdom-debug.apk
+          "$tools/aapt" dump badging build/sweet-kingdom-debug.apk > build/manifest.txt
+          grep "package: name='com.sweetkingdom.matchthree.preview'" build/manifest.txt
+          minimum=$(sed -n "s/^sdkVersion:'\([0-9]*\)'.*/\1/p" build/manifest.txt)
+          test -n "$minimum"
+          test "$minimum" -le 26
+          sha256sum build/sweet-kingdom-debug.apk > build/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sweet-kingdom-android-debug
+          path: |
+            build/sweet-kingdom-debug.apk
+            build/SHA256SUMS
+            build/screenshots/*.png
+          if-no-files-found: error
