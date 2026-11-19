@@ -136,7 +136,7 @@ func _draw() -> void:
 	if frame.get("kind") == "clear" and progress < 1.0:
 		for index in info.cells + info.damaged:
 			for particle in 5:
-				var angle := TAU * particle / 5.0 + index * 0.11
+				var angle := TAU * particle / 5.0 + int(index) * 0.11
 				var position := center(index) + Vector2.from_angle(angle) * step * (0.14 + 0.48 * progress)
 				draw_circle(position, (1.0 - progress) * 4.6, Color(1, 0.86, 0.55, 1.0 - progress), true, -1, true)
 		for index in info.powers:
