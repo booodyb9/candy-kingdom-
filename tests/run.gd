@@ -33,7 +33,7 @@ func _run() -> void:
 		if not won:
 			no_wins.append(int(level.id))
 	print("Balance smoke simulation (four deterministic seeds per level). No sampled win: ", no_wins)
-	check(no_wins.size() < 10, "balance smoke at least 41 of 50 levels have sampled wins")
+	check(no_wins.is_empty(), "every shipped level has a sampled win")
 	var board = fixture()
 	var copy = fixture()
 	check(board.grid == copy.grid, "seed reproducibility")
@@ -90,6 +90,7 @@ func _run() -> void:
 	board._fall(fall_frames)
 	check(board.grid[30] == 3 and fall_frames[0].data.origins[30] == 0, "gravity")
 	check(not board.grid.has(Board.EMPTY), "refill")
+	board = fixture()
 	for index in board.grid.size():
 		board.grid[index] = (index % board.width + (index / board.width) * 2) % 5
 	check(board.legal_moves().is_empty(), "deadlock detection")
